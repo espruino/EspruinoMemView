@@ -1,0 +1,169 @@
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>EspruinoMemView</title>
+
+    <!--https://visjs.github.io/vis-network/docs/network/-->
+    <script type="text/javascript" src="lib/vis-network.min.js"></script> <!-- https://visjs.github.io/vis-network/standalone/umd/vis-network.min.js -->
+    <script src="https://www.puck-js.com/puck.js"></script>
+
+    <style type="text/css">
+      #mynetwork {
+        width: 100%;
+        height: 1000px;
+        border: 1px solid lightgray;
+      }
+    </style>
+  </head>
+  <body>
+    <p id="instructions"><b>Espruino Memory Usage Visualiser</b> <a href="https://espruino.github.io/EspruinoMemView">More Info</a>- click <button id="connect">Connect</button> and a graph of all vars is shown.</p>
+    <div id="info"></div>
+    <div id="mynetwork"></div>
+
+
+    <script type="text/javascript">
+    
+      var response = []; // data from E.dumpVariables()
+      var headers = {}; // map of data name to CSV index - ref,size,name,links...
+
+      // for debug - list of nodes
+      var nodeList = [];
+      var edgeList = [];
+      // the actual network
+      var network;
+  
+
+      var container = document.getElementById("mynetwork");
+      var infoDiv = document.getElementById("info");
+
+      function log(txt) {
+        infoDiv.innerText = txt;
+      }
+
+      //Puck.debug=3;
+      document.getElementById("connect").onclick = function() {
+        document.getElementById("instructions").style = "display:none";
+        log("Connecting");
+        Puck.write("\x03", function() {
+          log("Reading variables...");
+          setTimeout(function() {
+            Puck.write("\x03\x10E.dumpVariables()\n", function(r) {
+              response = r.trim().split("\n").map(l=>l.trim()); 
+              headers = {};
+              response.shift().split(",").forEach((v,n) => headers[v]=n); // ref,size,name,links...
+              if (headers.ref!==0) {
+                log("Unexpected data received");   
+                console.log("Invalid data");
+                console.log(r);
+                document.getElementById("instructions").style = "";
+                return;
+              }
+              log("Got Data ("+response.length+" items)");
+              handleResponse();
+            });
+          }, 500);
+        });
+      };
+
+      function handleResponse() {        
+        nodeList = [];
+        edgeList = [];
+
+        response.forEach(rl=> {
+          var l = rl.split(",");
+          var id = parseInt(l[headers.ref]), 
+              size = parseInt(l[headers.size]), 
+              name = l[headers.name],
+              flags = headers.flags ? parseInt(l[headers.flags]) : undefined;
+          var node = { 
+            id:id, 
+            label : name, 
+            value : size,
+            flags : flags // not used for vis, this is just for us
+           };
+          if (id==1) { node.label="ROOT"; node.color = "red"; }
+          if (id==3) { node.label="HIDDENROOT?"; node.color = "red"; }
+          nodeList.push(node);
+          for (var i=headers["links..."];i< l.length;i++)
+            if (l[i]!="") 
+              edgeList.push({ 
+                from : id, 
+                to : parseInt(l[i]), 
+                arrows: "to" 
+              });
+        });
+        // Name merging
+        log("Merging names"); 
+        nodeList.forEach(node => {
+          if (node.label=="") return; // don't care
+          var linksOut = edgeList.filter(e=>e.from == node.id);
+          if (linksOut.length != 1) return; // only interested in single links
+          var linkTo = nodeList.find(n=>n.id==linksOut[0].to);
+          if (linkTo.label != "") return; // only interested in links to non-names
+          var linksInTo = edgeList.filter(e=>e.to == linkTo.id);
+          if (linksInTo.length != 1) return; // we only care about single point->point items
+          console.log("Combining name ",node," to link ",linkTo);
+          linkTo.label = node.label;
+          linkTo.value += node.value;
+          edgeList = edgeList.filter(e=>{
+            if (e.to == node.id) e.to = linkTo.id;
+            return e.from != node.id;
+          });
+          nodeList = nodeList.filter( n => n.id!=node.id );
+        });
+        // labelling
+        nodeList.forEach(node => {
+          if (node.flags==7) {
+            node.color = "green";
+            /*edgeList.forEach(e=>{
+              if (e.from = node.id) ...
+            });*/
+          }
+        });
+        // create a network
+        log("Creating network");
+        var data = {
+          nodes: new vis.DataSet(nodeList),
+          edges: new vis.DataSet(edgeList),
+        };
+        var options = {
+          nodes: {
+            shape: "dot",
+            scaling : { min:16, max:48 }
+          },
+          physics: {
+            forceAtlas2Based: {
+              gravitationalConstant: -26,
+              centralGravity: 0.005,
+              springLength: 230,
+              springConstant: 0.18,
+            },
+            maxVelocity: 146,
+            solver: "forceAtlas2Based",
+            timestep: 0.35,
+            stabilization: { 
+              enabled:true, iterations: 150, updateInterval: 25,
+            },
+          },
+        };
+        network = new vis.Network(container, data, options);
+        network.on("stabilizationProgress", function (params) {
+          var percent = Math.round(100 * params.iterations / params.total);
+          infoDiv.innerText = "Calculating "+percent+"%";
+        });
+        network.once("stabilizationIterationsDone", function () {
+          infoDiv.innerText = "Ready";
+        });
+        network.on("click", function (e) {
+          // console.log(e.items);
+          var selectedNodes = network.getSelectedNodes();
+          var txt = selectedNodes.map(n=>nodeList.find(l=>l.id==n));
+          infoDiv.innerText = JSON.stringify(txt,null,2);
+        });      
+        log("Network created");
+      }
+
+    </script>
+  </body>
+</html>
