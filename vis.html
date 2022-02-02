@@ -48,7 +48,8 @@
         Puck.write("\x03", function() {
           log("Reading variables...");
           setTimeout(function() {
-            Puck.write("\x03\x10E.dumpVariables()\n", function(r) {
+            // process.memory(); forces a GC, just in case we had floating vars that needed a clean up
+            Puck.write("\x03\x10process.memory();E.dumpVariables()\n", function(r) {
               response = r.trim().split("\n").map(l=>l.trim()); 
               headers = {};
               response.shift().split(",").forEach((v,n) => headers[v]=n); // ref,size,name,links...
