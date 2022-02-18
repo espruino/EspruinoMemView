@@ -23,7 +23,7 @@
 
 
     <script type="text/javascript">
-    
+
       var response = []; // data from E.dumpVariables()
       var headers = {}; // map of data name to CSV index - ref,size,name,links...
 
@@ -32,7 +32,7 @@
       var edgeList = [];
       // the actual network
       var network;
-  
+
 
       var container = document.getElementById("mynetwork");
       var infoDiv = document.getElementById("info");
@@ -50,11 +50,11 @@
           setTimeout(function() {
             // process.memory(); forces a GC, just in case we had floating vars that needed a clean up
             Puck.write("\x03\x10process.memory();E.dumpVariables()\n", function(r) {
-              response = r.trim().split("\n").map(l=>l.trim()); 
+              response = r.trim().split("\n").map(l=>l.trim());
               headers = {};
               response.shift().split(",").forEach((v,n) => headers[v]=n); // ref,size,name,links...
               if (headers.ref!==0) {
-                log("Unexpected data received");   
+                log("Unexpected data received");
                 console.log("Invalid data");
                 console.log(r);
                 document.getElementById("instructions").style = "";
@@ -67,35 +67,37 @@
         });
       };
 
-      function handleResponse() {        
+      function handleResponse() {
         nodeList = [];
         edgeList = [];
 
         response.forEach(rl=> {
           var l = rl.split(",");
-          var id = parseInt(l[headers.ref]), 
-              size = parseInt(l[headers.size]), 
+          var id = parseInt(l[headers.ref]),
+              size = parseInt(l[headers.size]),
               name = l[headers.name],
               flags = headers.flags ? parseInt(l[headers.flags]) : undefined;
-          var node = { 
-            id:id, 
-            label : name, 
+          var node = {
+            id:id,
+            label : name,
             value : size,
             flags : flags // not used for vis, this is just for us
            };
           if (id==1) { node.label="ROOT"; node.color = "red"; }
           if (id==3) { node.label="HIDDENROOT?"; node.color = "red"; }
-          nodeList.push(node);
+          if (!isNaN(node.id)) {
+            nodeList.push(node);
+          }
           for (var i=headers["links..."];i< l.length;i++)
-            if (l[i]!="") 
-              edgeList.push({ 
-                from : id, 
-                to : parseInt(l[i]), 
-                arrows: "to" 
+            if (l[i]!="")
+              edgeList.push({
+                from : id,
+                to : parseInt(l[i]),
+                arrows: "to"
               });
         });
         // Name merging
-        log("Merging names"); 
+        log("Merging names");
         nodeList.forEach(node => {
           if (node.label=="") return; // don't care
           var linksOut = edgeList.filter(e=>e.from == node.id);
@@ -143,7 +145,7 @@
             maxVelocity: 146,
             solver: "forceAtlas2Based",
             timestep: 0.35,
-            stabilization: { 
+            stabilization: {
               enabled:true, iterations: 150, updateInterval: 25,
             },
           },
@@ -161,7 +163,7 @@
           var selectedNodes = network.getSelectedNodes();
           var txt = selectedNodes.map(n=>nodeList.find(l=>l.id==n));
           infoDiv.innerText = JSON.stringify(txt,null,2);
-        });      
+        });
         log("Network created");
       }
 
