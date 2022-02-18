@@ -20,10 +20,8 @@
     <p id="instructions"><b>Espruino Memory Usage Visualiser</b> <a href="https://espruino.github.io/EspruinoMemView">More Info</a>- click <button id="connect">Connect</button> and a graph of all vars is shown.</p>
     <div id="info"></div>
     <div id="mynetwork"></div>
-
-
     <script type="text/javascript">
-    
+
       var response = []; // data from E.dumpVariables()
       var headers = {}; // map of data name to CSV index - ref,size,name,links...
 
@@ -32,7 +30,7 @@
       var edgeList = [];
       // the actual network
       var network;
-  
+
 
       var container = document.getElementById("mynetwork");
       var infoDiv = document.getElementById("info");
@@ -41,20 +39,37 @@
         infoDiv.innerText = txt;
       }
 
+      function getTitle() {
+        var c, r, t;
+        t = document.createElement('table');
+        for (var i = 0; i < arguments.length; i+=2) {
+          var key = arguments[i];
+          var value = arguments[i + 1];
+          if (value && value != "") {
+            r = t.insertRow(-1);
+            c = r.insertCell(0);
+            c.innerHTML = String(key + ":");
+            c = r.insertCell(1);
+            c.innerHTML = String(value);
+          }
+        }
+        return t;
+      }
+
       //Puck.debug=3;
       document.getElementById("connect").onclick = function() {
         document.getElementById("instructions").style = "display:none";
-        log("Connecting");
+        log("Connecting...");
         Puck.write("\x03", function() {
           log("Reading variables...");
           setTimeout(function() {
             // process.memory(); forces a GC, just in case we had floating vars that needed a clean up
             Puck.write("\x03\x10process.memory();E.dumpVariables()\n", function(r) {
-              response = r.trim().split("\n").map(l=>l.trim()); 
+              response = r.trim().split("\n").map(l=>l.trim());
               headers = {};
               response.shift().split(",").forEach((v,n) => headers[v]=n); // ref,size,name,links...
               if (headers.ref!==0) {
-                log("Unexpected data received");   
+                log("Unexpected data received");
                 console.log("Invalid data");
                 console.log(r);
                 document.getElementById("instructions").style = "";
@@ -67,35 +82,36 @@
         });
       };
 
-      function handleResponse() {        
+      function handleResponse() {
         nodeList = [];
         edgeList = [];
 
         response.forEach(rl=> {
           var l = rl.split(",");
-          var id = parseInt(l[headers.ref]), 
-              size = parseInt(l[headers.size]), 
-              name = l[headers.name],
+          var id = parseInt(l[headers.ref]),
+              size = parseInt(l[headers.size]),
+              name = l[headers.name] ? l[headers.name].replace('"', '').replace('\"','') : "",
               flags = headers.flags ? parseInt(l[headers.flags]) : undefined;
-          var node = { 
-            id:id, 
-            label : name, 
+          var node = {
+            id:id,
+            label : name,
             value : size,
+            title: getTitle("Name", name, "Size", size + " bytes", "Flags", flags),
             flags : flags // not used for vis, this is just for us
            };
           if (id==1) { node.label="ROOT"; node.color = "red"; }
           if (id==3) { node.label="HIDDENROOT?"; node.color = "red"; }
           nodeList.push(node);
           for (var i=headers["links..."];i< l.length;i++)
-            if (l[i]!="") 
-              edgeList.push({ 
-                from : id, 
-                to : parseInt(l[i]), 
-                arrows: "to" 
+            if (l[i]!="")
+              edgeList.push({
+                from : id,
+                to : parseInt(l[i]),
+                arrows: "to"
               });
         });
         // Name merging
-        log("Merging names"); 
+        log("Merging names...");
         nodeList.forEach(node => {
           if (node.label=="") return; // don't care
           var linksOut = edgeList.filter(e=>e.from == node.id);
@@ -123,7 +139,7 @@
           }
         });
         // create a network
-        log("Creating network");
+        log("Creating network...");
         var data = {
           nodes: new vis.DataSet(nodeList),
           edges: new vis.DataSet(edgeList),
@@ -143,7 +159,7 @@
             maxVelocity: 146,
             solver: "forceAtlas2Based",
             timestep: 0.35,
-            stabilization: { 
+            stabilization: {
               enabled:true, iterations: 150, updateInterval: 25,
             },
           },
@@ -161,7 +177,7 @@
           var selectedNodes = network.getSelectedNodes();
           var txt = selectedNodes.map(n=>nodeList.find(l=>l.id==n));
           infoDiv.innerText = JSON.stringify(txt,null,2);
-        });      
+        });
         log("Network created");
       }
 
