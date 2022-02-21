@@ -20,8 +20,6 @@
     <p id="instructions"><b>Espruino Memory Usage Visualiser</b> <a href="https://espruino.github.io/EspruinoMemView">More Info</a>- click <button id="connect">Connect</button> and a graph of all vars is shown.</p>
     <div id="info"></div>
     <div id="mynetwork"></div>
-
-
     <script type="text/javascript">
 
       var response = []; // data from E.dumpVariables()
@@ -41,10 +39,27 @@
         infoDiv.innerText = txt;
       }
 
+      function getTitle() {
+        var c, r, t;
+        t = document.createElement('table');
+        for (var i = 0; i < arguments.length; i+=2) {
+          var key = arguments[i];
+          var value = arguments[i + 1];
+          if (value && value != "") {
+            r = t.insertRow(-1);
+            c = r.insertCell(0);
+            c.innerHTML = String(key + ":");
+            c = r.insertCell(1);
+            c.innerHTML = String(value);
+          }
+        }
+        return t;
+      }
+
       //Puck.debug=3;
       document.getElementById("connect").onclick = function() {
         document.getElementById("instructions").style = "display:none";
-        log("Connecting");
+        log("Connecting...");
         Puck.write("\x03", function() {
           log("Reading variables...");
           setTimeout(function() {
@@ -75,12 +90,14 @@
           var l = rl.split(",");
           var id = parseInt(l[headers.ref]),
               size = parseInt(l[headers.size]),
+//              name = l[headers.name] ? l[headers.name].replace('"', '').replace('\"','') : "",
               name = l[headers.name],
               flags = headers.flags ? parseInt(l[headers.flags]) : undefined;
           var node = {
             id:id,
             label : name,
             value : size,
+            title: getTitle("Name", name, "Size", size, "Flags", flags),
             flags : flags // not used for vis, this is just for us
            };
           if (id==1) { node.label="ROOT"; node.color = "red"; }
@@ -97,7 +114,7 @@
               });
         });
         // Name merging
-        log("Merging names");
+        log("Merging names...");
         nodeList.forEach(node => {
           if (node.label=="") return; // don't care
           var linksOut = edgeList.filter(e=>e.from == node.id);
@@ -125,7 +142,7 @@
           }
         });
         // create a network
-        log("Creating network");
+        log("Creating network...");
         var data = {
           nodes: new vis.DataSet(nodeList),
           edges: new vis.DataSet(edgeList),
