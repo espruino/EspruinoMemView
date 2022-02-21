@@ -90,7 +90,8 @@
           var l = rl.split(",");
           var id = parseInt(l[headers.ref]),
               size = parseInt(l[headers.size]),
-              name = l[headers.name] ? l[headers.name].replace('"', '').replace('\"','') : "",
+//              name = l[headers.name] ? l[headers.name].replace('"', '').replace('\"','') : "",
+              name = l[headers.name],
               flags = headers.flags ? parseInt(l[headers.flags]) : undefined;
           var node = {
             id:id,
@@ -101,7 +102,9 @@
            };
           if (id==1) { node.label="ROOT"; node.color = "red"; }
           if (id==3) { node.label="HIDDENROOT?"; node.color = "red"; }
-          nodeList.push(node);
+          if (!isNaN(node.id)) {
+            nodeList.push(node);
+          }
           for (var i=headers["links..."];i< l.length;i++)
             if (l[i]!="")
               edgeList.push({
