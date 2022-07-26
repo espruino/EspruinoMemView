@@ -120,6 +120,10 @@
           var linksOut = edgeList.filter(e=>e.from == node.id);
           if (linksOut.length != 1) return; // only interested in single links
           var linkTo = nodeList.find(n=>n.id==linksOut[0].to);
+          if (linkTo===undefined) {
+            console.log("linkTo not found for "+node.id);
+            return;
+          }
           if (linkTo.label != "") return; // only interested in links to non-names
           var linksInTo = edgeList.filter(e=>e.to == linkTo.id);
           if (linksInTo.length != 1) return; // we only care about single point->point items
