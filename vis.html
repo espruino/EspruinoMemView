@@ -6,7 +6,7 @@
 
     <!--https://visjs.github.io/vis-network/docs/network/-->
     <script type="text/javascript" src="lib/vis-network.min.js"></script> <!-- https://visjs.github.io/vis-network/standalone/umd/vis-network.min.js -->
-    <script src="https://www.puck-js.com/puck.js"></script>
+    <script src="http://www.espruino.com/js/uart.js"></script>
 
     <style type="text/css">
       #mynetwork {
@@ -56,22 +56,21 @@
         return t;
       }
 
-      //Puck.debug=3;
+      UART.debug=3;
       document.getElementById("connect").onclick = function() {
         document.getElementById("instructions").style = "display:none";
         log("Connecting...");
-        Puck.write("\x03", function() {
+        UART.write("\x03", function() {
           log("Reading variables...");
           setTimeout(function() {
             // process.memory(); forces a GC, just in case we had floating vars that needed a clean up
-            Puck.write("\x03\x10process.memory();E.dumpVariables()\n", function(r) {
+            UART.write("\x03\x10process.memory();E.dumpVariables()\n", function(r) {
               response = r.trim().split("\n").map(l=>l.trim());
               headers = {};
               response.shift().split(",").forEach((v,n) => headers[v]=n); // ref,size,name,links...
               if (headers.ref!==0) {
                 log("Unexpected data received");
-                console.log("Invalid data");
-                console.log(r);
+                console.log("Invalid data : "+ JSON.stringify(r));
                 document.getElementById("instructions").style = "";
                 return;
               }
