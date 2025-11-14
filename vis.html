@@ -104,13 +104,24 @@
           if (!isNaN(node.id)) {
             nodeList.push(node);
           }
+          var lastNode;
           for (var i=headers["links..."];i< l.length;i++)
-            if (l[i]!="")
+            if (l[i]!="") {
+              var currNode = parseInt(l[i]);
               edgeList.push({
                 from : id,
-                to : parseInt(l[i]),
+                to : currNode,
                 arrows: "to"
               });
+              if (lastNode)
+                edgeList.push({ // a connecting edge
+                  from : lastNode,
+                  to : currNode,
+                  color : "grey",
+                  length: 5,
+                });
+              lastNode = currNode;
+            }
         });
         // Name merging
         log("Merging names...");
@@ -168,7 +179,7 @@
             stabilization: {
               enabled:true, iterations: 150, updateInterval: 25,
             },
-          },
+          }
         };
         network = new vis.Network(container, data, options);
         network.on("stabilizationProgress", function (params) {
