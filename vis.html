@@ -18,6 +18,7 @@
   </head>
   <body>
     <p id="instructions"><b>Espruino Memory Usage Visualiser</b> <a href="https://espruino.github.io/EspruinoMemView">More Info</a>- click <button id="connect">Connect</button> and a graph of all vars is shown.</p>
+    <p id="diffinstructions" style="display:none">Click <button id="diff">Diff</button> to read again, and to colour only <b>new variables</b></p>
     <div id="info"></div>
     <div id="mynetwork"></div>
     <script type="text/javascript">
@@ -63,25 +64,41 @@
         UART.write("\x03", function() {
           log("Reading variables...");
           setTimeout(function() {
-            // process.memory(); forces a GC, just in case we had floating vars that needed a clean up
-            UART.write("\x03\x10process.memory();E.dumpVariables()\n", function(r) {
-              response = r.trim().split("\n").map(l=>l.trim());
-              headers = {};
-              response.shift().split(",").forEach((v,n) => headers[v]=n); // ref,size,name,links...
-              if (headers.ref!==0) {
-                log("Unexpected data received");
-                console.log("Invalid data : "+ JSON.stringify(r));
-                document.getElementById("instructions").style = "";
-                return;
-              }
-              log("Got Data ("+response.length+" items)");
-              handleResponse();
-            });
+            requestVariables().then(() => handleResponse());
           }, 500);
         });
       };
 
-      function handleResponse() {
+      document.getElementById("diff").onclick = function() {
+        document.getElementById("diffinstructions").style = "display:none";
+        let oldNodes = nodeList;
+        nodeList = [];
+        log("Reading variables...");
+        requestVariables().then(response => {
+          handleResponse(oldNodes);
+        });
+      }
+
+      function requestVariables() {
+        // process.memory(); forces a GC, just in case we had floating vars that needed a clean up
+        return new Promise((resolve,reject) => {
+          UART.write("\x03\x10process.memory();E.dumpVariables()\n", function(r) {
+            response = r.trim().split("\n").map(l=>l.trim());
+            headers = {};
+            response.shift().split(",").forEach((v,n) => headers[v]=n); // ref,size,name,links...
+            if (headers.ref!==0) {
+              log("Unexpected data received");
+              console.log("Invalid data : "+ JSON.stringify(r));
+              document.getElementById("instructions").style = "";
+              return reject();
+            }
+            log("Got Data ("+response.length+" items)");
+            resolve(response);
+          });
+        });
+      }
+
+      function handleResponse(oldNodes) {
         nodeList = [];
         edgeList = [];
 
@@ -101,6 +118,8 @@
            };
           if (id==1) { node.label="ROOT"; node.color = "red"; }
           if (id==3) { node.label="HIDDENROOT?"; node.color = "red"; }
+          if (oldNodes && oldNodes.find(n=>n.id==id))
+            node.color = "grey";
           if (!isNaN(node.id)) {
             nodeList.push(node);
           }
@@ -119,9 +138,17 @@
                   to : currNode,
                   color : "grey",
                   length: 5,
+                  isConnectingNode : true
                 });
               lastNode = currNode;
             }
+        });
+        // Create 'ownedBy' based on edgeList
+        log("Propagating edgess...");
+        edgeList.forEach(edge => {
+          if (edge.isConnectingNode) return;
+          let n = nodeList.find(n => n.id == edge.to);
+          if (n) n.ownedBy = edge.from;
         });
         // Name merging
         log("Merging names...");
@@ -148,12 +175,38 @@
         });
         // labelling
         nodeList.forEach(node => {
-          if (node.flags==7) {
+          if (node.color != "grey" && node.flags==7) {
             node.color = "green";
             /*edgeList.forEach(e=>{
               if (e.from = node.id) ...
             });*/
           }
+          let path = [];
+          let parentHistory = [];
+          let parent = nodeList.find(n => n.id == node.ownedBy);
+          while (parent) {
+            if (parent.label=="Object" || parent.label=="ROOT") { // try and format links via objects
+              let n = path[0];
+              try { n = JSON.parse(path[0]); } catch {};
+              path[0] = "."+n;
+              if (parent.label=="ROOT") path.unshift("global");
+            } else if (parent.label=="Array") {
+              let n = path[0];
+              try {
+                let v = JSON.parse(path[0]);
+                if (isFinite(v)) n=v;
+              } catch {};
+              path[0] = "["+n+"]";
+            } else path.unshift(parent.label);
+            if (parentHistory.includes(parent.ownedBy)) {
+              path.unshift("...");
+              parent = undefined; // stop recursive loops
+            } else {
+              parentHistory.push(parent.ownedBy);
+              parent = nodeList.find(n => n.id == parent.ownedBy);
+            }
+          }
+          node.path = path.join("");
         });
         // create a network
         log("Creating network...");
@@ -188,6 +241,7 @@
         });
         network.once("stabilizationIterationsDone", function () {
           infoDiv.innerText = "Ready";
+          if (!oldNodes) document.getElementById("diffinstructions").style = "display:inherit";
         });
         network.on("click", function (e) {
           // console.log(e.items);

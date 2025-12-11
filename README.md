@@ -14,7 +14,14 @@ To use it:
 * Click `Connect`
 * Wait...
 * Then click and drag and use the mousewheel to zoom
-
+* Clicking on a node will show you information about that node at the top, including a calculated `path`
+which may be able to show you where the variable is defined.
 
 * **RED** are `global` and `hidden` objects in Espruino
 * **GREEN** are functions
+* **GREY** links are added between array/object elements to enforce ordering
+
+After initially connecting, you might want to do something on your device that is causing memory usage
+to increase, and then click the `Diff` button. This will scan all memory again and will make all variables
+that were previously allocated grey (note that if variables have moved around, it is possible that new
+variables will be turned grey instead).
