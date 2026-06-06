@@ -174,6 +174,42 @@
           });
           nodeList = nodeList.filter( n => n.id!=node.id );
         });
+
+        // Property-value merging: combine property-name nodes with their value nodes
+        // e.g. "myObject" > Object becomes "myObject": Object
+        log("Merging property-value pairs...");
+        var merges = []; // collect candidates first to avoid mutating during iteration
+        nodeList.forEach(function(node) {
+          if (!node.label) return;
+          if (node.color === "red") return;
+          var linksOut = edgeList.filter(function(e) { return !e.isConnectingNode && e.from === node.id; });
+          if (linksOut.length !== 1) return;
+          var linkTo = nodeList.find(function(n) { return n.id === linksOut[0].to; });
+          if (!linkTo || !linkTo.label) return;
+          if (linkTo.color === "red") return;
+          var linksInTo = edgeList.filter(function(e) { return !e.isConnectingNode && e.to === linkTo.id; });
+          if (linksInTo.length !== 1) return;
+          merges.push({ prop: node, value: linkTo });
+        });
+        merges.forEach(function(m) {
+          var node = m.prop, linkTo = m.value;
+          // Verify both nodes still exist (earlier merges may have consumed one)
+          if (nodeList.indexOf(node) === -1 || nodeList.indexOf(linkTo) === -1) return;
+          console.log("Combining property ", node.label, " with value ", linkTo.label);
+          node.label = node.label + ": " + linkTo.label;
+          node.value += linkTo.value;
+          node.shape = "diamond"; // TODO: Could perhaps use different shapes per data type?
+          node.title = getTitle("Name", node.label, "Size", node.value, "Flags", node.flags);
+          edgeList = edgeList.filter(function(e) { return !(e.from === node.id && e.to === linkTo.id && !e.isConnectingNode); });
+          edgeList.forEach(function(e) {
+            if (e.from === linkTo.id) e.from = node.id;
+            if (e.to === linkTo.id) e.to = node.id;
+          });
+          nodeList.forEach(function(n) {
+            if (n.ownedBy === linkTo.id) n.ownedBy = node.id;
+          });
+          nodeList = nodeList.filter(function(n) { return n.id !== linkTo.id; });
+        });
         // labelling
         nodeList.forEach(node => {
           if (node.color != "grey" && node.flags==7) {
