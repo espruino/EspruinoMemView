@@ -18,7 +18,7 @@
   </head>
   <body>
     <p id="instructions"><b>Espruino Memory Usage Visualiser</b> <a href="https://espruino.github.io/EspruinoMemView">More Info</a>- click <button id="connect">Connect</button> and a graph of all vars is shown.</p>
-    <p id="diffinstructions" style="display:none">Click <button id="diff">Diff</button> to read again, and to colour only <b>new variables</b></p>
+    <p id="diffinstructions" style="display:none">Click <button id="diff">Diff</button> to read again (<input type="checkbox" id="diffgc" checked></input>GC?), and to colour only <b>new variables</b></p>
     <div id="info"></div>
     <div id="mynetwork"></div>
     <script type="text/javascript">
@@ -64,7 +64,7 @@
         UART.write("\x03", function() {
           log("Reading variables...");
           setTimeout(function() {
-            requestVariables().then(() => handleResponse());
+            requestVariables(true/*gc*/).then(() => handleResponse());
           }, 500);
         });
       };
@@ -74,15 +74,16 @@
         let oldNodes = nodeList;
         nodeList = [];
         log("Reading variables...");
-        requestVariables().then(response => {
+        let gcFirst = document.getElementById("diffgc").checked;
+        requestVariables(gcFirst).then(response => {
           handleResponse(oldNodes);
         });
       }
 
-      function requestVariables() {
+      function requestVariables(gcFirst) {
         // process.memory(); forces a GC, just in case we had floating vars that needed a clean up
         return new Promise((resolve,reject) => {
-          UART.write("\x03\x10process.memory();E.dumpVariables()\n", function(r) {
+          UART.write(`\x03\x10${gcFirst?"process.memory();":""}E.dumpVariables()\n`, function(r) {
             response = r.trim().split("\n").map(l=>l.trim());
             headers = {};
             response.shift().split(",").forEach((v,n) => headers[v]=n); // ref,size,name,links...
