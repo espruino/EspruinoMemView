@@ -19,7 +19,8 @@
   <body>
     <p id="instructions"><b>Espruino Memory Usage Visualiser</b> <a href="https://espruino.github.io/EspruinoMemView">More Info</a>- click <button id="connect">Connect</button> and a graph of all vars is shown.</p>
     <p id="diffinstructions" style="display:none">Click <button id="diff">Diff</button> to read again (<input type="checkbox" id="diffgc" checked></input>GC?), and to colour only <b>new variables</b></p>
-    <div id="info"></div>
+    <button id="clearpath" style="display:none;">Clear Highlighted Path</button>
+    <pre id="info"></pre>
     <div id="mynetwork"></div>
     <script type="text/javascript">
 
@@ -35,6 +36,11 @@
 
       var container = document.getElementById("mynetwork");
       var infoDiv = document.getElementById("info");
+      var clearBtn = document.getElementById("clearpath");
+
+      clearBtn.onclick = function () {
+        clearPathHighlight();
+      };
 
       function log(txt) {
         infoDiv.innerText = txt;
@@ -98,6 +104,54 @@
           });
         });
       }
+
+      // Follow ownedBy chain from nodeId back to ROOT, return highlighted edge IDs
+      function findPathToRoot(nodeId) {
+        var edgeIds = [];
+        var seen = {};
+        seen[nodeId] = true;
+        while (nodeId !== 1 && nodeId !== 3) {
+          var node = nodeList.find(function(n) { return n.id === nodeId; });
+          if (!node || node.ownedBy === undefined || node.ownedBy === null) break;
+          var parent = node.ownedBy;
+          var edge = edgeList.find(function(e) {
+            return !e.isConnectingNode && e.from === parent && e.to === nodeId;
+          });
+          if (edge) edgeIds.push(edge.id);
+          if (seen[parent]) break;
+          seen[parent] = true;
+          nodeId = parent;
+        }
+        return edgeIds;
+      }
+
+      // Track highlighted edges and their original styles so we can reset them
+      var _highlightedEdges = [];
+
+      function clearPathHighlight() {
+        if (!_highlightedEdges.length || !network) return;
+        network.body.data.edges.update(_highlightedEdges.map(function(h) { return h.orig; }));
+        _highlightedEdges = [];
+        clearBtn.style.display = "none";
+      }
+
+      function highlightPathEdges(edgeIds) {
+        clearPathHighlight();
+        if (!edgeIds.length) return;
+        _highlightedEdges = edgeIds.map(function(id) {
+          var edge = edgeList.find(function(e) { return e.id === id; });
+          return {
+            id: id,
+            orig: { id: id, width: edge ? edge.width : undefined, color: edge ? edge.color : undefined, dashes: edge ? edge.dashes : undefined }
+          };
+        });
+        network.body.data.edges.update(edgeIds.map(function(id) {
+          return { id: id, width: 10, color: "#5b9bd5", dashes: true };
+        }));
+        clearBtn.style.display = "inline-block";
+      }
+
+
 
       function handleResponse(oldNodes) {
         nodeList = [];
@@ -174,6 +228,42 @@
           });
           nodeList = nodeList.filter( n => n.id!=node.id );
         });
+
+        // Property-value merging: combine property-name nodes with their value nodes
+        // e.g. "myObject" > Object becomes "myObject": Object
+        log("Merging property-value pairs...");
+        var merges = []; // collect candidates first to avoid mutating during iteration
+        nodeList.forEach(function(node) {
+          if (!node.label) return;
+          if (node.color === "red") return;
+          var linksOut = edgeList.filter(function(e) { return !e.isConnectingNode && e.from === node.id; });
+          if (linksOut.length !== 1) return;
+          var linkTo = nodeList.find(function(n) { return n.id === linksOut[0].to; });
+          if (!linkTo || !linkTo.label) return;
+          if (linkTo.color === "red") return;
+          var linksInTo = edgeList.filter(function(e) { return !e.isConnectingNode && e.to === linkTo.id; });
+          if (linksInTo.length !== 1) return;
+          merges.push({ prop: node, value: linkTo });
+        });
+        merges.forEach(function(m) {
+          var node = m.prop, linkTo = m.value;
+          // Verify both nodes still exist (earlier merges may have consumed one)
+          if (nodeList.indexOf(node) === -1 || nodeList.indexOf(linkTo) === -1) return;
+          console.log("Combining property ", node.label, " with value ", linkTo.label);
+          node.label = node.label + ": " + linkTo.label;
+          node.value += linkTo.value;
+          node.shape = "diamond"; // TODO: Could perhaps use different shapes per data type?
+          node.title = getTitle("Name", node.label, "Size", node.value, "Flags", node.flags);
+          edgeList = edgeList.filter(function(e) { return !(e.from === node.id && e.to === linkTo.id && !e.isConnectingNode); });
+          edgeList.forEach(function(e) {
+            if (e.from === linkTo.id) e.from = node.id;
+            if (e.to === linkTo.id) e.to = node.id;
+          });
+          nodeList.forEach(function(n) {
+            if (n.ownedBy === linkTo.id) n.ownedBy = node.id;
+          });
+          nodeList = nodeList.filter(function(n) { return n.id !== linkTo.id; });
+        });
         // labelling
         nodeList.forEach(node => {
           if (node.color != "grey" && node.flags==7) {
@@ -209,7 +299,61 @@
           }
           node.path = path.join("");
         });
-        // create a network
+
+        // Find and highlight circular dependency edges in orange
+        log("Finding circular references...");
+        var adj = {};
+        nodeList.forEach(function(n) { adj[n.id] = []; });
+        edgeList.forEach(function(edge) {
+          if (edge.isConnectingNode) return;
+          if (adj[edge.from]) adj[edge.from].push(edge);
+        });
+        var WHITE = 0, GRAY = 1, BLACK = 2;
+        var color = {};
+        var parent = {};
+        var cycleEdges = [];
+        nodeList.forEach(function(n) { color[n.id] = WHITE; });
+        function dfsCycleDetect(u) {
+          color[u] = GRAY;
+          (adj[u] || []).forEach(function(edge) {
+            var v = edge.to;
+            if (color[v] === GRAY) {
+              // Found a back edge — this edge completes a cycle
+              cycleEdges.push(edge);
+              // Walk parent pointers back from u to v to catch all cycle edges
+              var curr = u;
+              while (curr !== v) {
+                var parentEdge = parent[curr];
+                if (parentEdge) {
+                  cycleEdges.push(parentEdge);
+                  curr = parentEdge.from;
+                } else {
+                  break;
+                }
+              }
+            }
+            if (color[v] === WHITE) {
+              parent[v] = edge;
+              dfsCycleDetect(v);
+            }
+          });
+          color[u] = BLACK;
+        }
+        Object.keys(adj).forEach(function(id) {
+          if (color[id] === WHITE) dfsCycleDetect(parseInt(id));
+        });
+        cycleEdges.forEach(function(edge) {
+          edge.color = "#f0a030";
+          edge.dashes = true;
+          edge.width = 2;
+        });
+        log(`Found ${cycleEdges.length} circular reference edge(s)`);
+        // Assign IDs to every edge for edge highlighting
+        edgeList.forEach(function(edge, i) { edge.id = i + 1; });
+        createNetwork(oldNodes);
+      }
+
+      function createNetwork(oldNodes) {
         log("Creating network...");
         var data = {
           nodes: new vis.DataSet(nodeList),
@@ -222,16 +366,17 @@
           },
           physics: {
             forceAtlas2Based: {
-              gravitationalConstant: -26,
-              centralGravity: 0.005,
-              springLength: 230,
-              springConstant: 0.18,
+              gravitationalConstant: -60,
+              centralGravity: 0.01,
+              springLength: 40,
+              springConstant: 0.6,
+              damping: 0.35,
             },
-            maxVelocity: 146,
+            maxVelocity: 250,
             solver: "forceAtlas2Based",
             timestep: 0.35,
             stabilization: {
-              enabled:true, iterations: 150, updateInterval: 25,
+              enabled:true, iterations: 250, updateInterval: 25,
             },
           }
         };
@@ -241,14 +386,30 @@
           infoDiv.innerText = "Calculating "+percent+"%";
         });
         network.once("stabilizationIterationsDone", function () {
+          // Switch to less crazy physics to prevent weird vibration, maybe
+          network.setOptions({
+            physics: {
+              forceAtlas2Based: {
+                gravitationalConstant: -60,
+                centralGravity: 0.01,
+                springLength: 40,
+                springConstant: 0.6,
+                damping: 0.85,
+              },
+              maxVelocity: 15,
+              timestep: 0.35,
+              stabilization: false,
+            }
+          });
           infoDiv.innerText = "Ready";
           if (!oldNodes) document.getElementById("diffinstructions").style = "display:inherit";
         });
         network.on("click", function (e) {
-          // console.log(e.items);
-          var selectedNodes = network.getSelectedNodes();
-          var txt = selectedNodes.map(n=>nodeList.find(l=>l.id==n));
-          infoDiv.innerText = JSON.stringify(txt,null,2);
+          clearPathHighlight();
+          if (e.nodes.length === 1) {
+            highlightPathEdges(findPathToRoot(e.nodes[0]));
+          }
+          infoDiv.innerText = JSON.stringify(e.nodes.map(function(n) { return nodeList.find(function(l) { return l.id === n; }); }), null, 2);
         });
         log("Network created");
       }
